@@ -5,6 +5,11 @@ date: "2/21/2021"
 output: html_document
 ---
 
+```{r}
+library(tidyverse)
+```
+
+
 ### 2.4.3 Grid Approximation
 
 ```{r}
@@ -13,13 +18,13 @@ p_grid <- seq(0, 1, length.out = 20) # probability grid
 prior <- function(type) {
   if (type == 1L) {
     
-    rep(1, 20)                   # First prior
+    rep(1, 20)                   # First prior - uniform distribution
   } else if (type == 2L) {
     
-    ifelse(p_grid < 0.5, 0, 1)   # Second prior
+    ifelse(p_grid < 0.5, 0, 1)   # Second prior - step distribution
   } else {
     
-  exp(-5 * abs(p_grid - 0.5))    # Third prior
+  exp(-5 * abs(p_grid - 0.5))    # Third prior - gaussian distribution
   }
 }
 
@@ -27,9 +32,21 @@ prior <- function(type) {
 #   the number of successes
 #   number of trials
 #   the probability of success
+# Here we're calculating the likelihood at each point on the grid.
 likelihood <- dbinom(6,         # number of successes
                      size = 9,  # number of trials
                      prob = p_grid) # probability of success per trial
+# If you run this:
+# dbinom(3, 3, prob = p_grid), you're saying that we expect all trails
+# to be successful. So dbinom gives the 20th plausability the largest value,
+# (all 20 successes), and subsequent lower plausabilities 
+# lower and lower values.
+# dbinom(3, 4, prob = p_grid), you're saying that we expect about 3 out of
+# 4 trials to be successful, so dbinom gives a higher probability to 
+# 15 successes out of 20, and lower probabilities for higher and lower
+# successes.
+# 
+# Likelihood has nothing to do with the prior !!!!!
 
 plot_posterior <- function(type) {
   # Unstandardized posterior distribution
@@ -42,7 +59,7 @@ plot_posterior <- function(type) {
        type = "b",   # 'p' : points, "l" : lines, "b" : both
        xlab = "probability of water",
        ylab = "posterior probability"
-       )
+  )
   mtext("20 points")
 }
 ```
@@ -66,6 +83,8 @@ plot_prior(p_grid, prior_type = 3)
 plot_posterior(3)
 ```
 
+### 2.4.4 Quadratic approximation
+
 To compute the quadratic approximation to the globe tossing posterior:
 ```{r}
 library(rethinking)
@@ -83,6 +102,31 @@ Posterior mean value = p = 0.67
 Curvature of the quadratic approximation = sd = 0.16
 89 percentile interval = [0.42, 0.92]
 
+Plotting the quadratic approximation against the actual posterior:
+```{r}
+W <- 6
+L <- 3
+
+curve(dbeta(x, W + 1, L + 1), from = 0, to = 1)
+curve(dnorm(x, 0.67, 0.16), lty = 2, add = TRUE)
+```
+Note: The dnorm output is positive at 1.0, which is impossible.
+A positive value of 1 would mean only water is possible.
+This can't be true, since our data saw land.
+This is why many scientists require number of samples > 30.
+But some models are only correct with thousands of samples, so this
+heuristic is not valid. Instead of using quadratic approximation,
+you could use MCMC (Markov Chain Monte Carlo), or a whole host of
+other techniques.
+
+The quadratic approximation with lots of data and a uniform prior =
+the Maximum Likelihood Estimate (MLE) and it's Standard Error. Thus, we can
+re-interpret a lot of non-Bayesian model in Bayesian terms. But MLE 
+has some drawbacks that he quadratic approximation shares. This is why
+we turn to MCMC for the second half of the book.
+
+### 2.4.5 Markov Chain Monte Carlo
+
 MCMC (Markov Chain Monte Carlo) approximation to the globe tossing 
 posterior:
 ```{r}
@@ -95,7 +139,9 @@ W <- 6
 L <- 3
 
 for (i in 2:n_samples) {
-  p_new <- rnorm(1, p[i - 1], 0.1)
+  p_new <- rnorm(1,         # get 1 sample 
+                 p[i - 1],  # with this mean
+                 0.1)       # and this sd
   if (p_new < 0) p_new <- abs(p_new)
   if (p_new > 1) p_new <- 2 - p_new
   
@@ -109,8 +155,70 @@ for (i in 2:n_samples) {
 The values from p are samples from the posterior. To compare with the
 analytic posterior:
 ```{r}
-dens(p, xlim = c(0, 1))
-curve(dbeta(x, W + 1, L + 1), lty = 2, add = TRUE)
+dens(p, xlim = c(0, 1)) # dens is just a function to plot densities.
+                        # It plots p here.
+
+# First argument of curve() is the expression to draw.
+curve(dbeta(x, W + 1, L + 1), # Density of the beta distribution with
+                              # shape1 = W + 1, shape2 = L + 1.
+      lty = 2,    # lty (linetype) = 2 for a dashed line
+      add = TRUE) # If add = TRUE, add to an already existing plot
 ```
 
 This is the Metropolis algorithm, and is explained in Chapter 9.
+
+## 2.6 Practice
+
+2E1. Which of the expressions below correspond to the statement: the probability of rain on Monday?
+
+Pr(rain | Monday)
+
+Since:
+Pr(rain, Monday) = Pr(rain | Monday) Pr(Monday), and
+Pr(rain, Monday) = Pr(Monday | rain) Pr(rain), this is also
+equivalent to:
+Pr(rain, Monday) / Pr(Monday)
+
+2E2. Which of the following statements corresponds to the expression: Pr(Monday|rain)?
+
+The probability that it is Monday, giving that it is raining.
+
+2E3. Which of the expressions below correspond to the statement: the probability that it is Monday, given that it is raining?
+
+Pr(Monday | rain)
+
+Since Pr(Monday | rain) P(rain) = Pr(rain | Monday) Pr(Monday), we can say:
+Pr(Monday | rain) = Pr(rain | Monday) Pr(Monday) / Pr(rain)
+
+2M1. Recall the globe tossing model from the chapter. Compute and plot the grid approximate posterior distribution for each of the following sets of observations. In each case, assume a uniform prior for p.
+(1) W, W, W
+(2) W, W, W, L
+(3) L, W, W, L, W, W, W”
+
+Let's go through the whole procedure again, but in a different way:
+```{r}
+p_grid <- seq(0, 1, length.out = 20)
+prior <- rep(1, 20)
+trials <- tibble(water = c(3, 3, 5), land = c(0, 1, 2))
+
+grid_approx <- function(p_grid, prior, trials) {
+  for (i in 1:nrow(trials)) {
+    likelihood <- dbinom(trials["water"][[1]][[i]], 
+                         trials["water"][[1]][[i]] + trials["land"][[1]][[i]],
+                         p_grid)
+    unstd_posterior <- prior * likelihood
+    posterior <- unstd_posterior / sum(unstd_posterior)
+    plot(p_grid, posterior, type = "b")
+  }
+}
+
+grid_approx(p_grid, prior, trials)
+```
+
+2M2. Now assume a prior for p that is equal to zero when p < 0.5 and is a positive constant when p ≥ 0.5. Again compute and plot the grid approximate posterior distribution for each of the sets of observations in the problem just above.
+
+```{r}
+prior <- if_else(p_grid < 0.5, 0, 1)
+grid_approx(p_grid, prior, trials)
+```
+
