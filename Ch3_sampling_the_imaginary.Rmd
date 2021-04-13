@@ -155,3 +155,79 @@ plot(p_grid, sapply(p_grid, median_loss_fn),
 lines(p_grid, sapply(p_grid, mean_loss_fn), lty = 1, lwd = 2, col = "red")
 ```
 
+## 3.3 Sampling to simulate prediction
+
+Generating implied observations from a model is useful for:
+
+  * Model design: Sampling from the prior will tell us what the model expects. This is most useful when there are multiple parameters, so that the joint distribution needs to be sampled to be understood.
+  * Model checking: After updating a model with data, generate sample observations from the model to:
+    * check if the model works correctly
+    * investigate model behavior
+  * Software validation: To ensure model-fitting software is valid,
+    * generate observations from the model
+    * recover values of the parameters, and check against values of the original data
+  * Research design: If you can simulate observations from your hypothesis, you can evaluate whether the research can be effective. This means it is not just power analysis, but much more.
+  * Forecasting: Simulate new predictions for new cases and future observations. These forecasts are useful for
+    * applied prediction
+    * model criticism and revision
+    
+### 3.3.1 Dummy data
+
+We will simulate the globe tossing model.
+
+Likelihood is bi-directional:
+  * Given a realized observation, the likelihood says how plausible it is
+  * Given model parameters, the likelihood gives us a distribution of the possible observations
+  
+Binomial distribution: 
+
+\begin{equation}
+Pr(W|N,p) = \frac{N!}{(W! (N-W)!))} p^W (1-p)^{N-W}
+\end{equation}
+
+where W = number of times we hit water
+      N = number of times globe is tossed
+      p = probability of water
+      1 - p = probability of land
+      
+If the globe was tossed 2 times, we would have hit water for 0, 1, 2 times.
+```{r}
+dbinom(0:2, size = 2, prob = 0.7)
+```
+
+With a 0.7 probability of hitting water, we would have landed on water
+  * 0 times with a probability of 0.09
+  * 1 times with a probability of 0.42, and
+  * 2 times with a probability of 0.49
+  
+Using these probabilities, we can simulate observations. For example, if we want to simulate observing 1 water out of 2 tosses with a 0.7 probability of hitting water:
+```{r}
+rbinom(1, size = 2, prob = 0.7)
+```
+
+So we got 1 water in 2 tosses.
+If it was 0, it would have been 0 water in 2 tosses.
+If it was 2, it would be 2 water in 2 tosses.
+Lets simulate more observations:
+
+```{r}
+rbinom(10, size = 2, prob = 0.7)
+```
+
+Generating 100000 dummy values:
+```{r}
+dummy_w <- rbinom(1e5, size = 2, prob = 0.7)
+table(dummy_w) / 1e5
+```
+These values are close to the dbinom's analytical output above.
+
+Now let's simulate 9 tosses:
+```{r}
+dummy_w <- rbinom(1e5, size = 9, prob = 0.7)
+simplehist(dummy_w, xlab = "dummy water counts")
+```
+
+In this book, the posterior distribution is deduced logically. Then samples can be drawn from it.
+
+### 3.3.2 Model checking
+
