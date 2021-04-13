@@ -1,0 +1,30 @@
+---
+title: "Ch3_sampling_the_imaginary"
+author: "Samir Gadkari"
+date: "4/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rethinking)
+```
+
+## 3.1 Sampling from a grid-approximate posterior
+Let's sample from the posterior of the globe-tossing model using grid approximation.
+```{r}
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prob_p <- rep(1, 1000)
+prob_data <- dbinom(6, 9, prob = p_grid)
+posterior <- p_grid * prob_data
+posterior <- posterior / sum(posterior)
+
+samples <- sample(p_grid,            # sample from the grid,
+                  prob = posterior,  # using posterior probability
+                  size = 1e4,
+                  replace = TRUE)
+plot(samples)
+dens(samples)
+```
+
