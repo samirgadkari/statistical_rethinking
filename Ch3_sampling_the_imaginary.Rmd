@@ -12,12 +12,14 @@ library(rethinking)
 ```
 
 ## 3.1 Sampling from a grid-approximate posterior
-Let's sample from the posterior of the globe-tossing model using grid approximation.
+
+Let's sample from the posterior of the globe-tossing model using grid approximation to see the distribution of the posterior samples.
+
 ```{r}
 p_grid <- seq(from = 0, to = 1, length.out = 1000)
-prob_p <- rep(1, 1000)
+prob_prior <- rep(1, 1000)
 prob_data <- dbinom(6, 9, prob = p_grid)
-posterior <- p_grid * prob_data
+posterior <- prob_prior * prob_data
 posterior <- posterior / sum(posterior)
 
 samples <- sample(p_grid,            # sample from the grid,
@@ -26,5 +28,130 @@ samples <- sample(p_grid,            # sample from the grid,
                   replace = TRUE)
 plot(samples)
 dens(samples)
+```
+
+## 3.2 Sampling to summarize the posterior
+```{r}
+str(posterior)
+label_values = seq(0, 1000, 200)
+plot(posterior,
+     xaxt = "n",  # Don't show x axis
+     xlab = "p_grid")
+axis(1,           # 1 = below, 2 = left, 3 = above, 4 = right
+     at = label_values,
+     labels = as.character(round(label_values/1000, 2)))
+```
+### 3.2.1 Intervals of defined boundaries
+
+Find the posterior probability where the proportion of water < 0.5.
+
+```{r}
+sum(posterior[p_grid < 0.5])
+```
+This is not easy to do when there are many parameters in the posterior distribution. So let's try getting this value by sampling the posterior. This process can be used with any number of parameters in the posterior.
+
+```{r}
+sum(samples < 0.5) / 1e4
+```
+
+The answer is almost the same as the actual posterior probability.
+
+How much posterior probability lies between 0.5 and 0.75?
+```{r}
+sum((samples > 0.5) & (samples < 0.75))/ 1e4
+```
+
+### 3.2.2 Intervals of defined mass
+
+Compatibility interval is usually called confidence interval, except we should not develop confidence in a standard procedure without thinking of what it means in real life. So we will call it the compatibility interval.
+
+To find the lower 80 percent of the posterior distribution:
+```{r}
+quantile(samples, 0.8)
+```
+The middle 80 percent lies between 0.1 and 0.9 (the 10th and 90th percentile).
+```{r}
+quantile(samples, c(0.1, 0.9))
+PI(samples, prob = 0.8)        # rethinking package function finds the middle
+                               # x% range.
+```
+
+Such intervals provide a description of the distribution as long as the distribution is approximately symmetrical. Let's try a non-symmetrical distribution for the globe toss example with 3 out of 3 events of water.
+```{r}
+p_grid <- seq(0, 1, length.out = 1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(3, size = 3, prob = p_grid)
+posterior <- prior * likelihood
+posterior <- posterior / sum(posterior)
+samples <- sample(p_grid, size = 1e4, replace = TRUE, prob = posterior)
+
+plot(p_grid, posterior)
+```
+
+```{r}
+PI(samples, prob = 0.5)
+```
+
+But this range does not include the maximum probability (at 1). Instead, use HPDI function (High posterior density interval) to find this range.
+
+```{r}
+HPDI(samples, prob = 0.5)
+```
+
+The HPDI is sensitive to the number of samples you draw from the posterior (also called the simulation variance). If the choice of interval type makes a difference, just plot the entire posterior.
+
+### 3.2.3 Point estimates
+
+Point estimates of a posterior gives a single value to describe the posterior. Point estimates of a posterior discards information about it. So, you should not use it unless it is really necessary. To specify a point estimate, we must specify a loss function. Different loss functions nominate different point estimates.
+
+To find the MAP (Maximum a Posteriori) for the 3 waters out of 3 tosses example:
+```{r}
+which.max(posterior)
+p_grid[which.max(posterior)]
+```
+
+To use samples to find the MAP:
+```{r}
+# Find the mode from samples
+chainmode(samples,     # values sampled from posterior
+          adj = 0.01)
+```
+
+Mean and median:
+```{r}
+mean(samples)
+median(samples)
+```
+
+So which do we choose? Mode, mean, median?
+If you're using the absolute error as the criteria, then the median of the samples minimizes the loss function. If using the euclidean distance as the loss, the mean of the sample minimizes the loss function:
+```{r}
+median_loss_fn <- function(d) {
+  sum(posterior * abs(d - p_grid))
+}
+
+loss <- sapply(p_grid, median_loss_fn)
+p_grid[which.min(loss)]
+```
+```{r}
+mean_loss_fn <- function(d) {
+  sum(posterior * ((d - p_grid)^2))
+}
+
+loss <- sapply(p_grid, mean_loss_fn)
+p_grid[which.min(loss)]
+```
+
+```{r}
+plot(p_grid, posterior)
+abline(v = median(samples), col = "blue")
+abline(v = mean(samples), col = "red")
+
+plot(p_grid, sapply(p_grid, median_loss_fn), 
+     lty = 1, lwd = 2, 
+     col = "blue",
+     ylim = c(0, 0.2),
+     ylab = "Absolute loss (blue) and Quadratic loss (red)")
+lines(p_grid, sapply(p_grid, mean_loss_fn), lty = 1, lwd = 2, col = "red")
 ```
 
