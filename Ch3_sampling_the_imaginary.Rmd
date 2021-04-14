@@ -18,7 +18,7 @@ Let's sample from the posterior of the globe-tossing model using grid approximat
 ```{r}
 p_grid <- seq(from = 0, to = 1, length.out = 1000)
 prob_prior <- rep(1, 1000)
-prob_data <- dbinom(6, 9, prob = p_grid)
+prob_data <- dbinom(6, 9, prob = p_grid) # This is the likelihood.
 posterior <- prob_prior * prob_data
 posterior <- posterior / sum(posterior)
 
@@ -76,16 +76,27 @@ The middle 80 percent lies between 0.1 and 0.9 (the 10th and 90th percentile).
 ```{r}
 quantile(samples, c(0.1, 0.9))
 PI(samples, prob = 0.8)        # rethinking package function finds the middle
-                               # x% range.
+                               # x% range. PI = Percentile Interval.
 ```
 
 Such intervals provide a description of the distribution as long as the distribution is approximately symmetrical. Let's try a non-symmetrical distribution for the globe toss example with 3 out of 3 events of water.
+
+          experimental_prob
+               |
+               v
+           likelihood <- p_grid
+               |            |
+               v            v
+prior  ->  posterior ->  samples
+
 ```{r}
 p_grid <- seq(0, 1, length.out = 1000)
 prior <- rep(1, 1000)
 likelihood <- dbinom(3, size = 3, prob = p_grid)
 posterior <- prior * likelihood
 posterior <- posterior / sum(posterior)
+
+# These samples are sample probabilities
 samples <- sample(p_grid, size = 1e4, replace = TRUE, prob = posterior)
 
 plot(p_grid, posterior)
@@ -160,6 +171,21 @@ lines(p_grid, sapply(p_grid, mean_loss_fn), lty = 1, lwd = 2, col = "red")
 
 ## 3.3 Sampling to simulate prediction
 
+               experimental_prob
+                      |
+                      v
+                  likelihood <- p_grid
+                      |            |
+                      v            v
+       prior  ->  posterior ->  samples(model works correctly?
+         |            | rbinom()        investigage model behavior)
+         |            v                      \ rbinom()
+         v         sample values               \
+      samples(see what the model expects)        > sample values
+         |
+         | rbinom()
+         v
+    sample values
 Generating implied observations from a model is useful for:
 
   * Model design: Sampling from the prior will tell us what the model expects. This is most useful when there are multiple parameters, so that the joint distribution needs to be sampled to be understood.
@@ -214,6 +240,7 @@ Lets simulate more observations:
 ```{r}
 rbinom(10, size = 2, prob = 0.7)
 ```
+Each value above tells us how many times we hit water in 2 tosses.
 
 Generating 100000 dummy values:
 ```{r}
@@ -241,9 +268,7 @@ Evaluate if the model fitting worked.
 
 Model fit works like this:
 
-  Data  ->  Likelihood  ->  Predictions
-  Prior
-  
+  Prior  ->  Likelihood  -> Posterior  -> 
 
 To see if the software worked, you can get the data working backwards from the predictions like this:
 
