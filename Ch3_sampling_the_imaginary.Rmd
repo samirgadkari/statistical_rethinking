@@ -22,6 +22,9 @@ prob_data <- dbinom(6, 9, prob = p_grid)
 posterior <- prob_prior * prob_data
 posterior <- posterior / sum(posterior)
 
+# Each sample is a value from 0 - 1 (since we're sampling p_grid,
+# which is also from 0 - 1).
+# The density of the samples shows the relative amounts of each number.
 samples <- sample(p_grid,            # sample from the grid,
                   prob = posterior,  # using posterior probability
                   size = 1e4,
@@ -205,9 +208,7 @@ Using these probabilities, we can simulate observations. For example, if we want
 rbinom(1, size = 2, prob = 0.7)
 ```
 
-So we got 1 water in 2 tosses.
-If it was 0, it would have been 0 water in 2 tosses.
-If it was 2, it would be 2 water in 2 tosses.
+The value 1 we got indicates we hit water 1 time in 2 tosses.
 Lets simulate more observations:
 
 ```{r}
@@ -231,3 +232,93 @@ In this book, the posterior distribution is deduced logically. Then samples can 
 
 ### 3.3.2 Model checking
 
+  * Is the model fit good?
+  * Is the model adequate?
+  
+#### 3.3.2.1 Did the software work?
+
+Evaluate if the model fitting worked.
+
+Model fit works like this:
+
+  Data  ->  Likelihood  ->  Predictions
+  Prior
+  
+
+To see if the software worked, you can get the data working backwards from the predictions like this:
+
+  Sampled Data  <-  Likelihood  <- Predictions
+  Prior
+  
+If there is correspondence between the generated data, and the data used to fit the model, then it is a good fit.
+
+#### 3.3.2.2 Is the model adequate?
+
+Assess how the model fails to describe the data. This will enable model comprehension, revision, and improvement.
+
+  Data  ->  Likelihood (uses p)  ->  Predictions (Posterior)
+  Prior
+
+The implied predictions of the model are uncertain in two ways:
+
+  * Predicted observation uncertainity. Even though the probability (p) of water is known precisely, we don't know if the next toss will be water or land.
+  * Uncertainity about the probability (p) of water. p is used to get the posterior distribution. This is why you get a posterior distribution, and not a single p value. Since p is uncertain, so is the posterior distribution, and anything derived from it.
+
+We propagate the parameter uncertainity by averaging over the posterior density for p when computing the predictions. For each value of p, there is a distribution of outcomes. If you do a weighted average of all such distributions for all values of p, you get the Posterior Predictive Distribution. This distribution propagates uncertainity about parameter to uncertainity about prediction.
+
+We can simulate predicted observations for a single value of p using rbinom:
+```{r}
+w <- rbinom(1e4, size = 9, prob = 0.6)
+```
+
+or we can use the samples generated from the posterior. These samples are generated using the likelihood and the prior, so they represent the full posterior probability distribution. They are also probabilities - not the number of water outcomes.
+
+```{r}
+p_grid <- seq(0, 1, length.out = 1000)
+prior <- rep(1, 1000)
+likelihood <- dbinom(6, size = 9, prob = p_grid)
+posterior <- prior * likelihood
+posterior <- posterior / sum(posterior)
+
+samples <- sample(p_grid, size = 1e5, replace = TRUE, prob = posterior)
+posterior[1:10]
+samples[1:10]
+```
+We will now get the actual posterior values (1 for water, 0 for land):
+```{r}
+w <- rbinom(1e4, size = 9, prob = samples)
+w[1:10]
+simplehist(w)
+```
+
+We've so far seen the data as the model sees it. The model assumes each toss of the globe is independent of any other. But it is easy to create a dependency, since a normal person usually gets into a routine when carrying out a routine procedure. To look at aspects of our prediction, let's look at the data two different ways:
+
+  * Length of the longest run of either water or land. This will provide a crude measure or correlation between tosses
+  * The number of times the data switches from water to land or land to water
+
+Let's use the sequence of nine tosses: W L W W W L W L W. So we have longest run of 3, and data switches of 6.
+
+```{r}
+num_switches <- function(x) {
+
+  x_sign <- dplyr::case_when(x == 0 ~ -1, TRUE ~ 1)
+  sum(diff(x_sign) != 0)
+}
+
+ws <- lapply(1:1e5, function(x) rbinom(9, 1, prob = samples))
+switches <- sapply(ws, num_switches)
+
+# rle calculates the lengths and values of runs of equal values in a vector
+runs <- sapply(ws, function(x) max(rle(x)$lengths))
+```
+```{r}
+simplehist(switches, xlab = "Number of switches", ylab = "Freq of switches")
+abline(v = 6, col = "blue")
+simplehist(runs, xlab = "Length of longest run", ylab = "Freq of runs")
+abline(v = 3, col = "blue")
+```
+The blue line shows the number of switches and length of longest run in our sample. You can see that the number of switches is not close to the number of switches in the sample. This is consistent with a lack of independence between tosses of the globe. This means that each toss is providing less information about the true coverage of water on the globe. Even this bad model will still converge, but it will take a long time to do so.
+
+The length of longest run matches the length of longest run of our sample.
+
+A more common way of measuring extremes is to look at the tail values of data that are > 0.95 central probability mass. This leads to the p-value of 0.05. But this way measures the model just as it is defined, and so is a very weak form of model checking.
