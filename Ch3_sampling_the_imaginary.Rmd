@@ -266,23 +266,11 @@ In this book, the posterior distribution is deduced logically. Then samples can 
 
 Evaluate if the model fitting worked.
 
-Model fit works like this:
-
-  Prior  ->  Likelihood  -> Posterior  -> 
-
-To see if the software worked, you can get the data working backwards from the predictions like this:
-
-  Sampled Data  <-  Likelihood  <- Predictions
-  Prior
-  
-If there is correspondence between the generated data, and the data used to fit the model, then it is a good fit.
+To see if the software worked, you can get the data working backwards from the predictions. If there is correspondence between the generated data, and the data used to fit the model, then it is a good fit.
 
 #### 3.3.2.2 Is the model adequate?
 
 Assess how the model fails to describe the data. This will enable model comprehension, revision, and improvement.
-
-  Data  ->  Likelihood (uses p)  ->  Predictions (Posterior)
-  Prior
 
 The implied predictions of the model are uncertain in two ways:
 
@@ -318,7 +306,7 @@ simplehist(w)
 
 We've so far seen the data as the model sees it. The model assumes each toss of the globe is independent of any other. But it is easy to create a dependency, since a normal person usually gets into a routine when carrying out a routine procedure. To look at aspects of our prediction, let's look at the data two different ways:
 
-  * Length of the longest run of either water or land. This will provide a crude measure or correlation between tosses
+  * Length of the longest run of either water or land. This will provide a crude measure of correlation between tosses
   * The number of times the data switches from water to land or land to water
 
 Let's use the sequence of nine tosses: W L W W W L W L W. So we have longest run of 3, and data switches of 6.
