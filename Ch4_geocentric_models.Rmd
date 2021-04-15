@@ -53,3 +53,16 @@ hist(log(big), ylab = "Freq of Log(Product(bigger numbers))")
 ```
 
 Notice that even if the histogram of the product of big numbers is not normal, the histogram of the log of the product of big numbers is normal.
+
+Since many natural processes add together fluctuations, the measurements of these processes are Gaussian. This is why Gaussian distributions are used for science. Another reason to use them is because we may only know that a measure has finite variance. The Gaussian distribution is the shape that can be realized in the largest number of ways and does not introduce any new assumptions. It is the least surprising, and least informative assumption to make. Thus it is the most consistent with our golem's assumptions.
+
+Since those natural processes shed all underlying information about their processes when adding fluctuations, they cannot identify the underlying process.
+
+There are many types of processes in nature that are not additive, thus not creating Gaussian distributions.
+
+Many processes in nature can be represented using the Exponential family of distributions (exponential, gamma, Poisson, etc.).
+
+The Gaussian distribution has very thin tails. Many processes have heavy tails, meaning that a high probability of extreme events exists with them. ex. financial time series can look Gaussian in the short term, but over medium/long term can result in extreme shocks. You should not use Gaussian models for such time series.
+
+Discrete distributions like the Binomial are called Probability Mass functions.
+Continuous distributions like the Gaussian are called Probability Density functions. For both, the area under the curve sums to 1. For Probability Density functions can have likelihoods > 1, but Probability Mass functions cannot. This is because Probability density is the rate of change in cumulative probability. So where cumulative probability is changing rapidly, the density can exceed 1.
