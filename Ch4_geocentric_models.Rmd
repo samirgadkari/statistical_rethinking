@@ -1,0 +1,55 @@
+---
+title: "Ch4_geocentric_models"
+author: "Samir Gadkari"
+date: "4/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+We will look at linear regression as a bayesian model. Each parameter in the model will have a probability distribution.
+
+## 4.1 Why normal distributions are normal
+
+If you generate multiple samples from a random variable, the means of each sample form a normal distribution. The variable does not need to be normal.
+
+The general form of this is:
+
+> Take a number of random variables that have various kinds of distributions. Any one of these variables may or may not have a normal distribution. Adding up samples of these variables results in a normal distribution.
+
+So the question is why?
+
+There are many more ways of generating the mean than any other value after addition. There are a little less number of ways of generating the values next to the mean, and lesser number of ways going further from the mean. There are very few ways of generating values at the tails. This is the reason why adding random samples of various kinds of distributions results in a normal distribution.
+
+The normal distribution is part of the exponential family of distributions. This family includes normal, exponential, Poisson, etc.
+
+Simulate 16 steps of +1 or -1 from your current position. Sum up those values and plot to see the resulting distribution. Try squaring or taking the sine of those values before summing them up. All results lead to a normal or almost normal distribution.
+```{r}
+pos <- replicate(1000, # number of times to run expression
+                 sum(runif(16, -1, 1)))
+hist(pos, ylab = "Freq of Sum(random)")
+
+pos <- replicate(1000, # number of times to run expression
+                 sum(runif(16, -1, 1)^2))
+hist(pos, ylab = "Freq of Sum(random^2)")
+
+pos <- replicate(1000, # number of times to run expression
+                 sum(sin(runif(16, -1, 1))))
+hist(pos, ylab = "Freq of Sum(sin(random))")
+```
+
+Multiplying small numbers is the same as addition. Ex: 1.1 x 1.1 = `r 1.1 * 1.1`. Adding the increases gives us: (1 + 0.1) * (1 + 0.1) = 1 + 0.2 + 0.01 = 1.2. This is very close to the product. So small effects that multiply together are approximately additive.
+
+```{r}
+small <- replicate(1e4, prod(1 + runif(12, 0, 0.01)))
+hist(small, ylab = "Freq of Product(small numbers)")
+
+big <- replicate(1e4, prod(1 + runif(12, 0, 0.5)))
+hist(big, ylab = "Freq of Product(bigger numbers)")
+hist(log(big), ylab = "Freq of Log(Product(bigger numbers))")
+```
+
+Notice that even if the histogram of the product of big numbers is not normal, the histogram of the log of the product of big numbers is normal.
