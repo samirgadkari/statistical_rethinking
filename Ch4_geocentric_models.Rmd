@@ -72,7 +72,7 @@ Continuous distributions like the Gaussian are called Probability Density functi
 
 Our Bayesian machine considers many possible Gaussian distributions, and finds the one matching the given data and posterior plausibility. Note that we're finding the correct model by matching against the entire posterior plausibility - not just any point within it.
 
-Let's load the Howell data about the !Kung San foraging people from the 1960s.
+Let's load the Howell data about the Kalahari foraging people from the 1960s.
 ```{r}
 data(Howell1)
 d <- Howell1
