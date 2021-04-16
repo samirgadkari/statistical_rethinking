@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(rethinking)
+library(MASS)
 ```
 
 We will look at linear regression as a bayesian model. Each parameter in the model will have a probability distribution.
@@ -66,3 +67,142 @@ The Gaussian distribution has very thin tails. Many processes have heavy tails, 
 
 Discrete distributions like the Binomial are called Probability Mass functions.
 Continuous distributions like the Gaussian are called Probability Density functions. For both, the area under the curve sums to 1. For Probability Density functions can have likelihoods > 1, but Probability Mass functions cannot. This is because Probability density is the rate of change in cumulative probability. So where cumulative probability is changing rapidly, the density can exceed 1.
+
+## 4.3 Gaussian model of height
+
+Our Bayesian machine considers many possible Gaussian distributions, and finds the one matching the given data and posterior plausibility. Note that we're finding the correct model by matching against the entire posterior plausibility - not just any point within it.
+
+Let's load the Howell data about the !Kung San foraging people from the 1960s.
+```{r}
+data(Howell1)
+d <- Howell1
+```
+```{r}
+str(d)     # structure of the dataframe
+precis(d)  # summarize the data
+```
+
+Select only people 18 and older:
+```{r}
+d2 <- d[d$age >= 18, ]
+dens(d2$height)
+```
+Adult heights from a single population are almost always approximately normal. This one also looks close to normal.
+
+Modeling by looking at the data is a really bad idea. If the data is a mixture of different Gaussians, you won't be able to tell the underlying normality by looking at the data. Also, the empirical distribution need not be normal for us to use a normal distribution in our model. Our model is the small-world, golem view of the world, after all.
+
+|    h ~ Normal($\mu$, $\sigma$)  [likelihood, prior for heights]
+|    $\mu$ ~ Normal(178, 20)      [$\mu$ prior]
+|    $\sigma$ ~ Uniform(0, 50)    [$\sigma$ prior]
+
+In this normal model, the $h_i$ are independent, identically distributed (IID). But we know that heights of girl siblings in a family are not independent, although heights of girls in a population are. Also, heights of each generation of, say males, in a family are also not independent. But our IID assumption here is the golem's mental (epistemological) view, not the real-world (ontological) view. We're assuming ignorance of the dependence of heights, and taking the conservative IID assumption.
+
+Also, De Finetti's theorem says that if you can reorder values of a distribution, you can approximate these as mixtures of IID distributions.
+
+To get a sense of the assumptions you're making, you should always plot your priors:
+```{r}
+sd = 20
+curve(dnorm(x, 178, sd), from = 100, to = 250)
+abline(v = 178, col = "blue")
+abline(v = 178 - sd, lty = 2)
+abline(v = 178 + sd, lty = 2)
+abline(v = 178 - 2 * sd, lty = 3)
+abline(v = 178 + 2 * sd, lty = 3)
+abline(v = 178 - 3 * sd, lty = 4)
+abline(v = 178 + 3 * sd, lty = 4)
+```
+```{r}
+curve(dunif(x, 0, 50), from = -10, to = 60)
+```
+
+These plots make sense for height. Usually, average height is around 5'6", or `r round((12 * 5 + 6) * 2.5, 0)` cm, which is within $\pm 1 \sigma$ of the mean. We said sigma should be between 0 - 50. If the sigma is too large, the left hand side will go negative - which is not right for height. Sigma may not be 50 based on the data (95% of people lie between $\pm 100$ or $2 \sigma$), but we want to be conservative, and get a maximum value. It also makes sense to have lower bound of sigma as 0 since it is the standard deviation.
+
+h, $\mu$ and $\sigma$ imply a joint posterior distribution of individual heights. To look at heights, you can sample from this prior:
+```{r}
+sample_mu <- rnorm(1e4, 178, 20)
+sample_sigma <- runif(1e4, 0, 50)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+```
+### 4.3.5 Finding the posterior distribution with quap
+
+quap = calculates the quadratic approximation by:
+
+  * using the model definition, then
+  * defining the posterior at each combination of parameter values, then
+  * climbing the posterior to find it's peak (it's MAP), then
+  * estimating the quadratic curvature at the MAP to produce and approximation of the posterior.
+
+```{r}
+flist <- alist(
+  height ~ dnorm(mu, sigma),
+  mu ~ dnorm(178, 20),
+  sigma ~ dunif(0, 50)
+)
+
+m4.1 <- quap(flist, data = d2)
+precis(m4.1)
+```
+These numbers are the Gaussian approximations for each parameter's marginal distribution. This means, plausibility of each value of mu, after averaging over all sigma is given by a Gaussian distribution with mean 154.61 and standard deviation 0.41. The 5.5% and 94.5% values are the 89% compatibility intervals. If you want another interval, just put it into the precis function:
+```{r}
+precis(m4.1, prob=0.95)
+```
+
+You can provide quap a list of starting parameters to find the MAP value using:
+```{r}
+start <- list(mu = mean(d2$height), 
+              sigma = sd(d2$height))
+m4.1 <- quap(flist, data = d2, start = start)
+```
+When specifying formulas, use alist() so the code is not executed immediately (lazy execution for alist). When specifying start values, use list since it will be immediately executed to find the mean(d2$height), for example.
+
+Let's change standard deviation for mu, and see what happens:
+```{r}
+m4.2 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu ~ dnorm(178, 0.1),  # Changed sd from 20 to 0,1
+    sigma ~ dunif(0, 50)
+  ), data = d2
+)
+precis(m4.2)
+```
+
+Notice that the mean for mu is concentrated around 178. This is because we specified sigma for mu = 0.1. Also, notice that the mean for sigma has changed significantly, and so has the standard deviation. Since we restricted the golem to a small value of sd for mu, it took that and changed mean for sigma based on what it found for mu. The values for sigma changed although we did not change anything for sigma, because values for sigma were conditional on the values for mu.
+
+### 4.3.6 Sampling from a quap
+
+Since we have two parameters, we have a multi-dimensional ($\mu and \sigma) Gaussian distribution. When we sample from it, we will get a vector (instead of a single number).
+
+The quadratic approximation calculates sd for all parameters, and also covariances among pairs of parameters. Just like the mean and sd are enough to describe a 1-D Gaussian, a list of means and the Variance-Covariance matrix are enough to describe the multi-dimensional Gaussian.
+
+```{r}
+vcov(m4.1)
+```
+
+Let's factor the vcov matrix into variances and correlations.
+```{r}
+diag(vcov(m4.1))
+cov2cor(vcov(m4.1))
+```
+
+The correlation between mu and sigma is very low. This is how it is for most of the simple models. This will become important when we add a regression line as a model parameter.
+
+To sample the posterior, use extract.samples. These samples preserve the covariance between mu and sigma.
+```{r}
+post <- extract.samples(m4.1, n = 1e4)
+head(post)
+precis(post)
+plot(post)
+dens(post)
+```
+
+Sometimes, you want to simulate multi-variate Gaussian processes. In this case, you won't be able to use extract.samples, since it works on models only. Instead, use mvrnorm (multi-variate normal deviates):
+```{r}
+post <- mvrnorm(n = 1e4, mu = coef(m4.1), Sigma = vcov(m4.1))
+```
+
+We used the m4.1 model here for convinience. To simulate multi-variate Gaussian processes, we would need to define the mu vector and the Sigma martix.
+
+## 4.4 Linear prediction
+
