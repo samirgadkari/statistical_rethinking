@@ -218,7 +218,7 @@ The Probabilistic Linear Model estimates the parameters needed to draw the line/
 |           $h_i$ ~ Normal($\mu_i$, $\sigma$)
 |           $\mu_i$ = $\alpha + \beta_i (x_i - \bar x)$
 |           $\alpha$ ~ Normal(178, 20)
-|           $\beta$ ~ Uniform(0, 10)
+|           $\beta$ ~ Normal(0, 10)
 |           $\sigma$ ~ Uniform(0, 50)
 
 #### 4.4.1.1 Probability of the data
@@ -239,3 +239,230 @@ You should choose a model based on substantive theory. Such models perform much 
 You can look at the units of your model to determine the units for $\alpha$ and $\beta$.
 
 #### 4.4.1.3 Priors
+
+Let's simulate heights from the model, using just the priors. This will tell us what the priors imply.
+```{r}
+N <- 100
+
+prior_predictive_sim <- function(b) {
+  set.seed(1795)
+  a <- rnorm(N, 178, 20)
+
+  plot(NULL, xlim = range(d2$weight), ylim = c(-100, 400),
+       xlab = "weight", ylab = "height")
+  abline(h = 0, lty = 2)               # No one is below 0 cm tall
+  abline(h = 272, lty = 1, lwd = 0.5)  # Tallest person (Wadlow) line
+  
+  mtext("b ~ dnorm(0, 10)")
+  xbar <- mean(d2$weight)
+  for (i in 1:N)
+    curve(a[i] + b[i] * (x - xbar),
+          from = min(d2$weight), to = max(d2$weight),
+          add = TRUE,  # add to existing plot
+          col = col.alpha("black", 0.2)) # calculates transparent color values
+}
+
+prior_predictive_sim(rnorm(N, 0, 10))
+```
+
+Without looking at the data, we know that height increases with weight. So instead of $\beta$ being normal, we can define it as Log-normal. So the $log(\beta)$ is normal, which means $\beta$ is positive, since $e^{any number}$ is positive.
+
+|           $\beta$ ~ Log-Normal(0, 1)
+
+Let's see what this looks like:
+```{r}
+b <- rlnorm(N, 0, 1)
+dens(b, xlim = c(0, 5),
+     adj = 0.1)  # adj is the width of the density kernel
+```
+
+```{r}
+prior_predictive_sim(rlnorm(N, 0, 1)) # rlnorm gives the log norm deviates
+```
+
+This is a much better prior. We have a lot of data, so we could have ignored this step, and continued with the earlier definition of $\beta$. The reasons to fuss about priors is:
+
+  * There are many analyses where no amount of data makes the prior irrelevant
+  * Thinking about priors helps us develop better models
+  
+There is no uniquely correct prior. By doing prior-predictive simulations, we're exploring the consequences of beginning with different information. By varying priors, we can see how our knowledge affects the analysis. When we do this exploration, we should not look at the data.
+
+### 4.4.2 Finding the posterior distribution
+
+So our new model is:
+
+|           $h_i$ ~ Normal($\mu_i$, $\sigma$)
+|           $\mu_i$ = $\alpha + \beta_i (x_i - \bar x)$
+|           $\alpha$ ~ Normal(178, 20)
+|           $\beta$ ~ Normal(0, 10)
+|           $\sigma$ ~ Uniform(0, 50)
+
+Let's fit the model:
+```{r}
+data(Howell1)
+d <- Howell1
+d2 <- d[ d$age >= 18, ]
+
+xbar <- mean(d2$weight)
+m4.3 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + b * (weight - xbar),
+    a ~ dnorm(178, 20),
+    b ~ dlnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ),
+  data = d2
+)
+```
+When you pull samples from the posterior, the distribution of those samples approximates the posterior's distribution.
+
+Another way of coding log-normal:
+```{r}
+m4.3b <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- a + exp(log_b) * (weight - xbar),
+    a ~ dnorm(178, 20),
+    log_b ~ dnorm(0, 1),
+    sigma ~ dunif(0, 50)
+  ), data = d2
+)
+```
+
+Thm4.3b is will make the same predictions as m4.3. But instead of $\beta$ in the posterior, you will get $log(\beta)$.
+
+### 4.4.3 Interpreting the posterior distribution
+
+Once you get the posterior distribution, you have to make sense of it. You can either read tables to do that, or plot simulations. Most models are hard to understand from tables alone. So we will plot posterior distributions and predictions. This will allow you to:
+
+  * see if the model fit worked
+  * see the absolute magnitude of the relationship between outcome and predictor
+  * find the uncertainity surrounding an average relationship
+  * find the uncertainity surrounding the implied predictions of the model, as these are distinct from parameter uncertainity
+  
+Posterior probabilities of parameter values describe the relative compatibility of different states of the world with the data, according to the model. These are small-world numbers, but disagreements about them leads to model revision, which is a good thing.
+
+#### 4.4.3.1 Tables of marginal distributions
+
+Let's inspect the marginal posterior distribution:
+```{r}
+precis(m4.3)
+```
+The 0.9 mean value of b (the slope) means a person 1kg heavier will be 0.9cm taller. 89% probability is within 0.84 and 0.97. This means slopes close to 0 or much higher than 1 are incompatible with this data. Just because we fitted a straight line to it, does not mean the relation between height and weight is linear. It just means that if you're committed to a line, then lines with a slope around 0.9 are the plausible ones.
+
+```{r}
+round(vcov(m4.3), 3)
+```
+No covariance among the parameters.
+```{r}
+pairs(m4.3)
+```
+The density is shown in the diagonal. The correlation is shown in the lower plots. The blue plots at the top are the scatterplots between variables.
+
+#### 4.4.3.2 Plotting posterior inference against the data
+
+Much better than tables is to plot posterior inference against the data. It helps to:
+
+  * interpret the posterior
+  * check on model assumptions
+  
+When the predictions aren't close to model observations or patterns, then you can look at if the model is not fit correctly or is badly specified.
+
+Let's start with superimposing posterior mean values over the height and weight data.
+
+```{r}
+plot(height ~ weight, data = d2, col=rangi2)
+post <- extract.samples(m4.3)
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve(a_map + b_map * (x - xbar), add = TRUE)
+```
+
+#### 4.4.3.3 Adding uncertainity around the mean
+
+Every combination of $\alpha$ and $\beta$ is assigned a posterior probability. So let's visualize it.
+```{r}
+line_posterior_probability <- function(num_data, num_lines) {
+  
+  set.seed(8080)
+  N <- num_data
+  
+  dN <- d2[1:N, ]
+  mN <- quap(
+    alist(
+      height ~ dnorm(mu, sigma),
+      mu <- a + b * (weight - mean(weight)),
+      a ~ dnorm(178, 20),
+      b ~ dlnorm(0, 1),
+      sigma ~ dunif(0, 50)
+    ), data = dN
+  )
+  
+  post <- extract.samples(mN, n = num_lines)
+  plot(dN$weight, dN$height, 
+       xlim = range(d2$weight), ylim = range(d2$height),
+       col = rangi2, xlab = "weight", ylab = "height")
+  mtext(concat("N = ", N))
+  
+  for (i in 1:num_lines) {
+    # You need to specify the variable x in curve() function.
+    # This x is for the x-axis values that curve will fill in.
+    # Curve does not know the position of these values in your
+    # function, so you use x to specify the position.
+    curve(post$a[i] + post$b[i] * (x - mean(dN$weight)),
+          col = col.alpha("black", 0.3), add = TRUE)
+  }
+}
+
+line_posterior_probability(10, 20)
+line_posterior_probability(50, 20)
+line_posterior_probability(150, 20)
+line_posterior_probability(352, 20)
+```
+#### 4.4.3.4 Plotting regression intervals and contours
+
+Let's see the uncertainity around the average regression line. Focus on weight value of 50kg. Let's make a list of 10,000 values of $\mu$ for a 50kg individual by sampling from the posterior.
+```{r}
+post <- extract.samples(m4.3)
+mu_at_50 <- post$a + post$b * (50 - xbar)
+dens(mu_at_50, col = rangi2, lwd = 2, xlab = "mu|weight = 50")
+PI(mu_at_50, prob = 0.89)
+```
+Since the components of $\mu$ are Gaussian, $\mu$ is Gaussian as well. Adding Gaussians produces a Gaussian.
+
+We need to repeat the above calculation for every weight value - not just 50kg. For this, use the link function. Basically, link just calculates the regression equation and produces the output.
+```{r}
+mu <- link(m4.3)
+str(mu)
+```
+Each individual weight is used to produce a column of this matrix, mu. There are 1000 samples for each individual weight. What we really want is to calculate weight along the sequence of possible weights. So let's do this:
+```{r}
+weight.seq <- seq(25, 70, 1)
+mu <- link(m4.3, data = data.frame(weight = weight.seq))
+str(mu)
+
+plot(height ~ weight, d2, col = col.alpha(rangi2, 0.5))
+# for (i in 1:100) 
+#   points(weight.seq, mu[i, ],
+#          pch = 16, col = col.alpha(rangi2, 0.1))
+
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI, prob = 0.89)
+
+# lines joins the line segments given by the x and y coordinates
+lines(weight.seq,  # x-coordinate
+      mu.mean)     # y-coordinate
+
+shade(mu.PI,  # density or formula object
+      weight.seq) # x-axis value for plot
+```
+There are only 46 columns because there are only 46 values between 25 and 70.
+
+The shading on the model above shows a very tight bound around the regression line. But you should note that this line and the bound is specific to the model. Even a bad model can have a tight bound.
+
+The link function can be defined as:
+
+> mu.link <- function(weight) post$a + post$b * (weight - xbar)
+
+Knowing how each function works allows you to create your own functions for different use-cases.
