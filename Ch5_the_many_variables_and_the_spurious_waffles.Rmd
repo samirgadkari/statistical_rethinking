@@ -1,0 +1,212 @@
+---
+title: "Ch5_the_many_variables_and_the_spurious_waffles"
+author: "Samir Gadkari"
+date: "4/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rethinking)
+library(magrittr)
+library(dagitty)
+# library(DiagrammeR)
+```
+
+Taking the suggestions given during the attaching of the rethinking package, we call the requested functions:
+```{r}
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+We will look at divorce rate and how it is related to:
+
+  * marraige rate
+  * median marraige age
+  
+for states within US. In this chapter, we will start thinking about:
+
+  * spurious correlations between variables
+  * revealing important correlations, masked by unrevealed correlations with other variables
+  * start thinking about causal inference
+
+** 5.1 Spurious association
+
+```{r}
+data(WaffleDivorce)
+d <- WaffleDivorce
+
+plot(d$Marriage, d$Divorce, xlab = "Marriage rate", ylab = "Divorce rate")
+plot(d$MedianAgeMarriage, d$Divorce, 
+     xlab = "Median age marriage", ylab = "Divorce rate")
+```
+
+High marriage rate implies high cultural valuation of marriage. Why would this cause the divorce rate to rise? Let's standardize the variables, and build models for both plots to investigate.
+
+```{r}
+d$A <- scale(d$MedianAgeMarriage)
+d$D <- scale(d$Divorce)
+```
+
+Let's build a linear model like this:
+
+|           $D_i$ ~ Normal($\mu_i$, $\sigma$)
+|           $\mu_i$ = $\alpha + \beta_A A_i$
+|           $\alpha$ ~ Normal(0, 0.2)
+|           $\beta_A$ ~ Normal(0, 0.5)   This prior says 95% possible that
+|                                             $\beta_A$ is between $\pm1$
+|           $\sigma$ ~ Exponential(1)
+
+What does the prior slope $\beta_A$ imply? If $\beta_A$ is 1, that means 1 sd change in Age at marriage is associated with a 1 sd change in Divorce rate. How big is that?
+
+```{r}
+sd(d$MedianAgeMarriage)
+```
+
+So a change of 1.2 years in the Age at marriage is associated with a full 1 sd change in Divorce rate. That seems like an insanely strong relationship. The above prior thinks only 5% of the plausible slopes are more extreme than 1.
+
+```{r}
+m5.1 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- a + bA * A,
+    a ~ dnorm(0, 0.2),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d)
+
+set.seed(10)
+prior <- extract.prior(m5.1)
+mu <- link(m5.1, post = prior, data = list(A=c(-2, 2)))
+plot(NULL, xlim = c(-2, 2), ylim = c(-2, 2))
+for (i in 1:50)
+  lines(c(-2, 2), mu[i,], col = col.alpha("black", 0.4))
+```
+
+Now for the posterior predictions - link and summarize with mean and PI, then plot.
+```{r}
+A_seq <- seq(from = -3, to = 3.2, length.out = 30)
+mu <- link(m5.1, data = list(A = A_seq))
+mu.mean <- apply(mu, 2, mean)
+mu.PI <- apply(mu, 2, PI)
+
+plot(D ~ A, data = d, col = rangi2)
+lines(A_seq, mu.mean, lwd = 2)
+shade(mu.PI, A_seq)
+```
+
+Now for the relation between Marraige rate and Divorce rate:
+
+```{r}
+d$M <- scale(d$Marriage)
+m5.2 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- a + bM * M,
+    a ~ dnorm(0, 0.2),
+    bM ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d)
+```
+
+If we go through and find the mean of bM, we can compare it with mean of bA. This is not a good way of deciding which predictor is better. Both could provide independent value, or one could eliminate the effects of the other. We have to think causally to understand what is going on.
+
+```{r}
+dag5.1 <- dagitty("dag {
+                  A -> D
+                  A -> M
+                  M -> D
+                  }")
+coordinates(dag5.1) <- list(x = c(A = 0, D = 1, M = 2),
+                            y = c(A = 0, D = 1, M = 0))
+drawdag(dag5.1)
+```
+
+```{r include=TRUE, echo=FALSE}
+# Use dagitty package instead of DiagrammeR, since that is what the
+# code in the book uses.
+# create_graph() %>%
+#  add_node(label = "A") %>%
+#  add_node(label = "M") %>%
+#  add_node(label = "D") %>%
+#  set_node_position(node = 1, x = 1, y = 2) %>%
+#  set_node_position(node = 2, x = 3, y = 2) %>%
+#  set_node_position(node = 3, x = 2, y = 1) %>%
+#  add_edge(from = 1, to = 2) %>%
+#  add_edge(from = 2, to = 3) %>%
+#  add_edge(from = 1, to = 3) %>%
+#  render_graph()
+```
+
+m5.1 tells us the _total_ influence of Age at marriage is strongly negative with divorce rate. The _total_ means we have to account for all paths from A to D.
+
+m5.2 tells us that marraige rate is positively associated with divorce rate. It could be that the association between M and D arises entirely due to A's influence on both M and D:
+
+```{r}
+dag5.2 <- dagitty("dag {
+                  A -> D
+                  A -> M
+                  }")
+coordinates(dag5.2) <- list(x = c(A = 0, D = 1, M = 2),
+                            y = c(A = 0, D = 1, M = 0))
+drawdag(dag5.2)
+```
+
+```{r include=TRUE, echo=FALSE}
+# Use dagitty package instead of DiagrammeR, since that is what the
+# code in the book uses.
+# create_graph() %>%
+#  add_node(label = "A") %>%
+#  add_node(label = "M") %>%
+#  add_node(label = "D") %>%
+# set_node_position(node = 1, x = 1, y = 2) %>%
+#  set_node_position(node = 2, x = 3, y = 2) %>%
+# set_node_position(node = 3, x = 2, y = 1) %>%
+#  add_edge(from = 1, to = 2) %>%
+#  add_edge(from = 1, to = 3) %>%
+#  render_graph()
+```
+
+
+This DAG is also consistent with the posterior distributions of m5.1 and m5.2. So which is it? We need to slow down and carefully consider what each DAG implies.
+
+### 5.1.2 Testable implications
+
+A DAG may imply some variables are independent of others under certain conditions. These are the model's testable implications - it's conditional independencies. Conditional independencies tell us:
+
+  * which variables should/should not be associated with one another in the data
+  * which variables become disassociated when we condition on some other set of variables
+  
+Y $\not \perp$ X | Z  says that Y is independent of X after conditioning on Z.
+
+For the first DAG, every variable is associated with the other variables. This is a testable assumption:
+
+|               $D \not\perp A, D \not\perp M, A \not\perp M$
+
+The $\not \perp$ symbol indicates "not independent of".
+
+Sometimes, people use correlations (using the cor function), to determine which variables are associated with each other. This is terrible. Many different patterns of association with different implications can produce the same correlation.
+
+In the second DAG, suppose we condition on A. M tells us nothing more about D, since information relevant to predicting D is already in A. So this is a testable assumption:
+
+|              $D \perp M | A$
+
+This same assumption cannot be used for the first DAG, because M really influences D in that model.
+
+To see the implied conditional dependencies on the second DAG:
+
+```{r}
+DMA_dag2 <- dagitty('dag{ D <- A -> M }')
+impliedConditionalIndependencies(DMA_dag2)
+```
+
+To see the implied conditional dependencies on the first DAG:
+
+```{r}
+DMA_dag1 <- dagitty('dag{ D <- A -> M -> D }')
+impliedConditionalIndependencies(DMA_dag1)
+```
+
+For the first DAG, there are no implied conditional dependencies.
+
