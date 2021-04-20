@@ -112,7 +112,7 @@ m5.2 <- quap(
 
 If we go through and find the mean of bM, we can compare it with mean of bA. This is not a good way of deciding which predictor is better. Both could provide independent value, or one could eliminate the effects of the other. We have to think causally to understand what is going on.
 
-```{r}
+```{r include=TRUE, echo=FALSE, out.width='40%'}
 dag5.1 <- dagitty("dag {
                   A -> D
                   A -> M
@@ -143,7 +143,7 @@ m5.1 tells us the _total_ influence of Age at marriage is strongly negative with
 
 m5.2 tells us that marraige rate is positively associated with divorce rate. It could be that the association between M and D arises entirely due to A's influence on both M and D:
 
-```{r}
+```{r include=TRUE, echo=FALSE, out.width='40%'}
 dag5.2 <- dagitty("dag {
                   A -> D
                   A -> M
@@ -342,4 +342,108 @@ pairs(d)
 You can see both x_spur and x_real are correlated with y. But when you include both in a linear regression predicting y, the posterior mean for the association between y and x_spur will be close to 0, while comparable mean for x_real will be closer to 1.
 
 #### 5.1.5.3 Counterfactual plots
+
+We call certain plots counterfactual because we generate them for simulated parameter values. These parameter values can be anything, even values that aren't in range of the dataset. This is why we call them counterfactual. You have to make sure not to plot nonsense. Used with clarity of purpose, counterfactual plots help you understand the model and generate predictions for imaginary interventions.
+
+One problem with counterfactual plots is that they ignore the assumed causal structure. For example, in the real world, is it possible to change median age of marriage without also changing the marriage rate? Probably not.
+
+So let's see how to take the causal structure into account. The simplest use of a counterfactual plot is to see how the predictions change as you change only one predictor at a time. If that predictor has any arrows coming into it, then we hold the values of the other predictors at their mean. This is done because when we're manipulating a predictor that feeds into another one, the second predictor will get manipulated as well. Since we standardize all predictor values, this means setting those other predictor values to 0.
+
+The basic recipe for producing counterfactual plots is:
+
+  * pick a variable to manipulate (the intervention variable)
+  * define the range of values to set the intervention variable to
+  * for each value of the intervention variable, and for each sample in the posterior, use the causal model to simulate the values of the other variables and the outcome
+  * this will give you a posterior distribution of counterfactual outcomes, which you can plot in various ways
+  
+Let's use this DAG:
+```{r include=TRUE, echo=FALSE, out.width='40%'}
+dag5.1 <- dagitty("dag {
+                  A -> D
+                  A -> M
+                  M -> D
+                  }")
+coordinates(dag5.1) <- list(x = c(A = 0, D = 1, M = 2),
+                            y = c(A = 0, D = 1, M = 0))
+drawdag(dag5.1)
+```
+
+In a single quap model, we will create two models (one for D, and one for M).
+
+```{r}
+data(WaffleDivorce)
+d <- list()
+d$A <- standardize(WaffleDivorce$MedianAgeMarriage)
+d$D <- standardize(WaffleDivorce$Divorce)
+d$M <- standardize(WaffleDivorce$Marriage)
+
+m5.3_A <- quap(
+  alist(
+    # A -> D <- M
+    D ~ dnorm(mu, sigma),
+    mu <- a + bM*M + bA*A,
+    a ~ dnorm(0, 0.2),
+    bM ~ dnorm(0, 0.5),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1),
+    
+    # A -> M
+    M ~ dnorm(mu_M, sigma_M),
+    mu_M <- aM + bAM * A,
+    aM ~ dnorm(0, 0.2),
+    bAM ~ dnorm(0, 0.5),
+    sigma_M ~ dexp(1)
+  ), data = d)
+
+A_seq <- seq(from = -2, to = 2, length.out = 30)
+sim_dat <- data.frame(A = A_seq)
+s <- sim(m5.3_A, data = sim_dat, 
+         vars = c("M", "D"))  # simulate M and then D, in that order
+plot(sim_dat$A, colMeans(s$D), ylim = c(-2, 2), type = "l",
+     xlab = "Manipulated A", ylab = "Counterfactual D")
+shade(apply(s$D, 2, PI), sim_dat$A)
+mtext("Total counterfactual effect of A on D")
+```
+
+When we manipulate some variable X, we break the causal influence of other variables on X (the arrows coming into X). So if we manipulate M, then the DAG for simulating the effect of M removes the A -> M link:
+
+```{r include=TRUE, echo=FALSE, out.width='40%'}
+dag5.1 <- dagitty("dag {
+                  A -> D
+                  M -> D
+                  }")
+coordinates(dag5.1) <- list(x = c(A = 0, D = 1, M = 2),
+                            y = c(A = 0, D = 1, M = 0))
+drawdag(dag5.1)
+```
+
+Let's simulate the effects of manipulating M for A = 0 (the average value).
+
+```{r}
+sim_dat <- data.frame(M = seq(from = -2, to = 2, length.out = 30), A = 0)
+s <- sim(m5.3_A, data = sim_dat, vars = "D")
+
+plot(sim_dat$M, colMeans(s), ylim = c(-2, 2), type = "l",
+     xlab = "manipulated M", ylab = "counterfactual D")
+shade(apply(s, 2, PI), sim_dat$M)
+mtext("Total counterfactual effect of M on D")
+```
+
+This trend is less strong. We already have seen that M does not affect D much.
+
+This is what sim does:
+```{r}
+A_seq <- seq(from = -2, to = 2, length.out = 30)
+post <- extract.samples(m5.3_A)
+M_sim <- with(post,  # The with function allows us to apply post$ as prefix
+              sapply(1:30, # to all variables in the equation
+                     function(i)
+                       rnorm(1e3, aM + bM * A_seq[i], sigma_M)))
+D_sim <- with(post, 
+              sapply(1:30,
+                     function(i)
+                       rnorm(1e3, a + bA*A_seq[i] + bM * M_sim[, i], sigma)))
+```
+
+## 5.2 Masked relationship
 
