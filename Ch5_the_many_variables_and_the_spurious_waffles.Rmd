@@ -208,5 +208,138 @@ DMA_dag1 <- dagitty('dag{ D <- A -> M -> D }')
 impliedConditionalIndependencies(DMA_dag1)
 ```
 
-For the first DAG, there are no implied conditional dependencies.
+For the first DAG, there are no implied conditional dependencies. So the only implication that differs between these DAGs is the last one: D _||_ M|A. To test this implication, we need a statistical model that conditions on A, so we can see if that renders D independent of M. That is what multiple regression helps with. It addresses the _descriptive_ question:
+
+> Is there any additional value in knowing a variable, once I already know all of the other predictor variables?
+
+In this case, the multiple-regression model addresses the questions:
+
+  * After I know marriage rate, what additional value is there in also knowing age at marriage?
+  * After I already know age at marriage, what additional value is there in also knowing marriage rate?
+  
+### 5.1.4 Approximating the posterior
+
+|           $D_i$ ~ Normal($\mu_i$, $\sigma$)
+|           $\mu_i$ = $\alpha + \beta_M M_i + \beta_A A_i$
+|           $\alpha$ ~ Normal(0, 0.2)
+|           $\beta_M$ ~ Normal(0, 0.5)
+|           $\beta_A$ ~ Normal(0, 0.5)
+|           $\sigma$ ~ Exponential(1)
+
+```{r}
+m5.3 <- quap(
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- a + bM*M + bA*A,
+    a ~ dnorm(0, 0.2),
+    bM ~ dnorm(0, 0.5),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d)
+
+precis(m5.3)
+plot(coeftab(m5.1, m5.2, m5.3), par = c("bA", "bM"))
+```
+
+This plot shows the posterior means as circles, and the 89% compatibility interval as horizontal bars. It shows that although bM is high in m5.2, it's absolute value is much lower in m5.3. This means that once we know age at marraige, there is not much additional predictive power in also knowing the rate of marriage for that state.
+
+This shows the implication of the second DAG D _||_ M | A. This means, the first DAG did not imply this result, so it is out. The association between marriage rate and divorce rate is spurious, caued by the influence of age at marriage on both marriage rate and divorce rate.
+
+Simulating the divorce example M <- A -> D:
+n <- 50
+age <- rnorm(N)
+div <- rnorm(N, -age)
+mar <- rnorm(N, age)
+
+Using these variables in m5.1, m5.2, m5.3 will give you the same pattern of posterior inferences as the actual data. To simulate influence of both A and M on D:
+
+div <- rnorm(N, -age + mar)
+
+Again, multiple regression will help sort things out.
+
+Interpreting the parameter estimates depends on your belief about the causal model, because several causal models are consistent with any one set of parameter estimates.
+
+### 5.1.5 Plotting multivariate posteriors
+
+To find the relationship between age and divorce rate, we will:
+
+  * standardize all variables (including the outcome variable)
+  * create a model that predicts marriage rate based only on age
+  * get the marriage rate residuals for the given age values
+  * regress divorce rate on the marriage rate residuals
+  
+This will show us if there is a relationship between marriage rate and divorce rate, while taking into account the relationship between age and divorce rate. Similarly, we will find the relationship between marriage rate and divorce rate.
+
+```{r}
+m5.4 <- quap(
+  alist(
+    M ~ dnorm(mu, sigma),
+    mu <- a + bA * A,
+    a ~ dnorm(0, 0.2),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = d)
+
+mu <- link(m5.4)
+mu_mean <- apply(mu, 2, mean)
+mu_resid <- d$M - mu_mean
+
+plot(mu_resid, d$D, col = rangi2,
+     xlab = "Marriage rate residuals", ylab = "Divorce rate (std)")
+```
+
+You can see that there is no association between the marriage rate residuals, and the divorce rate, after taking into account all other variables. This means that there will also be no association between the marriage rate and the divorce rate.
+
+The unified multivariate models do this automatically. It is useful to keep this fact in mind, because regressions behave in surprising ways as a result.
+
+There is a tradition of taking residuals from one model and using them as data in another. _Never_ use residuals as data. They are parameters - variables with unobserved data. Treating them as known values throws away uncertainity. The right way to control a variable is to include it as a parameter in a model designed with an explicit causal identification strategy.
+
+#### 5.1.5.2 Posterior prediction plots
+
+Posterior prediction plots are used for:
+
+  * check if the model correctly approximates the posterior
+  * check where the model fails. This can help you improve the model, but it needs the analysts domain expertise.
+
+Let's look at the posterior prediction plots for the unified model:
+
+```{r}
+mu <- link(m5.3) # when you don't specify data in link, it uses original data
+mu_mean <- apply(mu, 2, mean)
+mu_PI <- apply(mu, 2, PI)
+
+D_sim <- sim(m5.3, n=1e3)
+D_PI <- apply(D_sim, 2, PI)
+
+plot(mu_mean ~ d$D, col = rangi2, ylim = range(mu_PI),
+     xlab = "Observed divorce", ylab = "Predicted divorce")
+abline(a = 0, b = 1, lty = 2)
+for (i in 1:nrow(d))
+  lines(rep(d$D[i], 2), mu_PI[, i], col = rangi2)
+
+# If this line is run in a script, R will wait for you to click a point
+# in the active plot window. It will place a label near that point,
+# on the side you choose. When you are done labeling points,
+# press the right mouse button, or ESC to exit this state.
+# In the Rmarkdown, it does not do anything
+# identify(x = d$D, y = mu_mean, labels = d$Loc)
+```
+
+A statistical model merely quantifies uncertainity based on the given model. It cannot answer if an effect is real or spurious. This depends on how well the modeller view of the world matches reality. For example, a spurious predictor could be eliminated by adding the correct predictor to the model. But, if you don't add such a predictor, you will never know the old predictor is spurious. Therefore, all statistical models are vulnerable and demand critique.
+
+One way spurious associations between predictor and outcome can arise is when a truly causal predictor, x_real influences both the outcome and a spurious predictor x_spur. Let's simulate this:
+
+```{r}
+N <- 100
+x_real <- rnorm(N)
+x_spur <- rnorm(N, x_real)
+y <- rnorm(N, x_real)
+d <- data.frame(x_real, x_spur, y)
+
+pairs(d)
+```
+
+You can see both x_spur and x_real are correlated with y. But when you include both in a linear regression predicting y, the posterior mean for the association between y and x_spur will be close to 0, while comparable mean for x_real will be closer to 1.
+
+#### 5.1.5.3 Counterfactual plots
 
