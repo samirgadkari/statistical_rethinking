@@ -447,3 +447,244 @@ D_sim <- with(post,
 
 ## 5.2 Masked relationship
 
+Multiple regression is useful for:
+
+  * knocking out spurious associations
+  * measuring the direct influences of multiple factors on the outcome. This helps reveal correlations between two predictor variables where one is positively correlated with the outcome, and the other is negatively correlated with it.
+  
+We will look at this problem when regressing the kcal-per-gram of milk for mammals against female body mass and neocortex-percentage. The neocortex percentage is the neocortex size / brain size. This will test the theory that primates with larger brains produce higher-energy milk so that brains can grow quickly.
+
+```{r}
+data(milk)
+d <- milk
+str(d)
+```
+```{r}
+d$K <- scale(d$kcal.per.g)
+d$N <- scale(d$neocortex.perc)
+d$M <- scale(log(d$mass))
+```
+
+Let's look at the simple bivariate relationship between neocortex-perc and kcal-per-g.
+
+|               $K_i ~ Normal(\mu_i, \sigma)$
+|               $\mu_i = \alpha + \beta_N N_i$
+
+Let's just run this without priors to address one key modeling issue. First, we have to remove missing values (NAs) from the data. Let's use complete cases for this.
+
+```{r}
+dcc <- d[complete.cases(d$K, d$N, d$M), ]
+
+m5.5_draft <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a + bN * N,
+    a ~ dnorm(0, 1),
+    bN ~ dnorm(0, 1),
+    sigma ~ dexp(1)
+ ), data = dcc)
+
+# Let's plot the priors
+prior <- extract.prior(m5.5_draft)
+xseq <- c(-2, 2)
+mu <- link(m5.5_draft, post = prior, data = list(N = xseq))
+plot(NULL, xlim = xseq, ylim = xseq,
+     xlab = "Neocortex percent (std)", ylab = "kilocal per g (std)")
+mtext("a ~ dnorm(0, 1)\nbN ~ dnorm(0, 1)", 3)
+
+for (i in 1:50)
+  lines(xseq, mu[i, ], col = col.alpha("black", 0.3))
+```
+
+Many of these lines assume a huge relationship between the neocotex-perc and the kcal-per-g. Let's limit their slopes, and their y-intercepts:
+
+```{r}
+m5.5 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a + bN * N,
+    a ~ dnorm(0, 0.2),
+    bN ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = dcc)
+
+prior <- extract.prior(m5.5)
+xseq <- c(-2, 2)
+mu <- link(m5.5, post = prior, data = list(N = xseq))
+plot(NULL, xlim = xseq, ylim = xseq,
+     xlab = "Neocortex percent (std)", ylab = "kilocal per g (std)")
+mtext("a ~ dnorm(0, 0.2)\nbN ~ dnorm(0, 0.5)", 3)
+
+for (i in 1:50)
+  lines(xseq, mu[i, ], col = col.alpha("black", 0.3))
+```
+
+These are still vague priors, but within the high-probability region of observable data. Now let's look at the posterior:
+
+```{r}
+precis(m5.5)
+```
+
+Relationship is not very strong, nor very precise (sd is almost 2 * mean). Let's see this in a picture form:
+
+```{r}
+xseq <- seq(from = min(dcc$N) - 0.15, to = max(dcc$N) + 0.15, length.out = 30)
+mu <- link(m5.5, data = list(N = xseq))
+mu_mean <- apply(mu, 2, mean)
+mu_PI <- apply(mu, 2, PI)
+plot(K ~ N, data = dcc)
+lines(xseq, mu_mean)
+shade(mu_PI, xseq)
+```
+
+This shows a weakly positive relationship, but highly imprecise. A lot of positive/negative slopes are possible.
+
+Let's use the log(mass) as a predictor, by itself, against Kcal-per-g.
+```{r}
+m5.6 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a + bM * M,
+    a ~ dnorm(0, 0.2),
+    bM ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = dcc)
+
+precis(m5.6)
+```
+Log mass is negatively correlated, but also highly imprecise.
+
+Now add the two predictors in one model:
+
+|               $K_i ~ Normal(\mu_i, \sigma)$
+|               $\mu_i = \alpha + \beta_N N_i + \beta_M M_i$
+|               $\alpha ~ Normal(0, 0.2)$
+|               $\beta_N ~ Normal(0, 0.5)$
+|               $\beta_M ~ Normal(0, 0.5)$
+|               $\sigma ~ Exponential(1)
+
+```{r}
+m5.7 <- quap(
+  alist(
+    K ~ dnorm(mu, sigma),
+    mu <- a + bN * N + bM * M,
+    a ~ dnorm(0, 0.2),
+    bN ~ dnorm(0, 0.5),
+    bM ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = dcc)
+
+precis(m5.7)
+```
+This relationship is much stronger, and with similar precision. The posterior association of both predictors with the outcome has increase, just by combining them together into one model. Let's plot the changes:
+```{r}
+plot(coeftab(m5.5, m5.6, m5.7), pars = c("bM", "bN"))
+```
+
+The posterior mean for the neocortex-perc has increased 5x with it's interval definitely positive now. The posterior mean for the log body mass has increased 2.5x, with it's interval definitely negative now.
+
+To explain why the predictors were not so good individually, but great together, let's see if they interacted with each other of any other hidden predictor. Consider these 3 possible relationships between predictors:
+
+```{r include=TRUE, echo=FALSE, out.width=40%}
+dag5.7.1 <- dagitty("dag {
+                  M -> N
+                  N -> K
+                  M -> K
+                  }")
+coordinates(dag5.7.1) <- list(x = c(M = 0, K = 1, N = 2),
+                            y = c(M = 0, K = 1, N = 0))
+drawdag(dag5.7.1)
+
+dag5.7.2 <- dagitty("dag {
+                  N -> M
+                  M -> K
+                  N -> K
+                  }")
+coordinates(dag5.7.2) <- list(x = c(M = 0, K = 1, N = 2),
+                            y = c(M = 0, K = 1, N = 0))
+drawdag(dag5.7.2)
+
+dag5.7.3 <- dagitty("dag {
+                  U -> M
+                  U -> N
+                  M -> K
+                  N -> K
+                  }")
+coordinates(dag5.7.3) <- list(x = c(M = 0, U = 1, K = 1, N = 2),
+                            y = c(M = 0, U = 0, K = 1, N = 0))
+drawdag(dag5.7.3)
+```
+U is the unobserved variable that influences both M and N.
+
+We cannot tell which graph is the right one. Each implies that all variables are related. So there are no conditional independencies. DAGs with the same conditional independencies are called a Markov Equivalence set. While the data alone cannot tell you which model is correct, your knowledge of the variables will eliminate a large number of silly DAGs.
+
+Let's make counterfactual plots to show how the model sees the problem.
+
+```{r}
+xseq <- seq(from = min(dcc$N) - 0.15, to = max(dcc$N) + 0.15, length.out = 30)
+mu <- link(m5.7, data = data.frame(N = xseq, M = 0))
+mu_mean <- apply(mu, 2, mean)
+mu_PI <- apply(mu, 2, PI)
+plot(NULL, xlim = range(dcc$N), ylim = range(dcc$K),
+     xlab = "neocortex percent (std)", ylab = "kilocal per g (std)")
+mtext("Counterfactual holding M = 0", 3)
+lines(xseq, mu_mean, lwd = 2)
+shade(mu_PI, xseq)
+
+xseq <- seq(from = min(dcc$M) - 0.15, to = max(dcc$M) + 0.15, length.out = 30)
+mu <- link(m5.7, data = data.frame(M = xseq, N = 0))
+mu_mean <- apply(mu, 2, mean)
+mu_PI <- apply(mu, 2, PI)
+plot(NULL, xlim = range(dcc$M), ylim = range(dcc$K),
+     xlab = "log body mass (std)", ylab = "kilocal per g (std)")
+mtext("Counterfactual holding N = 0", 3)
+lines(xseq, mu_mean, lwd = 2)
+shade(mu_PI, xseq)
+```
+
+Simulating a masking relationship:
+```{r}
+# M -> K <- N
+# M -> N
+n <- 100
+M <- rnorm(n)
+N <- rnorm(n, M)
+K <- rnorm(n, N - M)
+d_sim <- data.frame(K = K, N = N, M = M)
+```
+
+You can see the masking by replacing dcc with d_sim in models m5.5, m5.6, m5.7. The precis summaries will show the masking pattern since the slopes become extreme in m5.7. To simulate the other two DAGs:
+
+```{r}
+# M -> K <- N
+# N -> M
+n <- 100
+N <- rnorm(n)
+M <- rnorm(n, N)
+K <- rnorm(n, N - M)
+d_sim2 <- data.frame(K = K, N = N, M = M)
+
+# M -> K <- N
+# M <- U -> N
+n <- 100
+U <- rnorm(n)
+M <- rnorm(n, U)
+N <- rnorm(n, U)
+K <- rnorm(n, N - M)
+d_sim3 <- data.frame(K = K, N = N, M = M)
+```
+
+In the primate milk study, it may be that positive association between large body size and neocortex percent arises form a tradeoff between lifespan and learning. Large animals tend to live longer, and for them investing in learning is useful. Both large body size and large neocortex influence the amount of calories in milk. This implies that the first DAG is the right one. But we cannot easily tell with the evidence at hand. To compute the Markov Equivalence set, let's define the first DAG and ask dagitty to do the hard work:
+
+```{r}
+dag5.7 <- dagitty("dag{
+                  M -> K <- N
+                  M -> N }")
+coordinates(dag5.7) <- list(x = c(M = 0, K = 1, N = 2),
+                            y = c(M = 0.5, K = 1, N = 0.5))
+MElist <- equivalentDAGs(dag5.7)
+drawdag(MElist)
+```
+
+## 5.3 Categorical variables
+
